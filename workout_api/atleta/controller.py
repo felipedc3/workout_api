@@ -85,7 +85,14 @@ async def query(
 
     atletas:list[AtletaModel] = (await db_session.execute(query_stmt)).scalars().all()
 
-    return [AtletaOut.model_validate(atleta, from_attributes=True) for atleta in atletas]
+    return [
+        AtletaOutCustom(
+        nome=atleta.nome,
+        centro_treinamento=atleta.centro_treinamento.nome,
+        categoria=atleta.categoria.nome
+    ) 
+    
+    for atleta in atletas]
 
 
 @router.get(
