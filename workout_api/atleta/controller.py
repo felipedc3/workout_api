@@ -1,17 +1,30 @@
 from datetime import datetime
+from typing import Optional
 from uuid import uuid4
-from fastapi import APIRouter, Body, HTTPException, status
+from sqlalchemy.exc import IntegrityError
+
 from pydantic import UUID4
+from WORKOUT_API.atleta.schemas import AtletaIn, AtletaOut, AtletaUpdate, AtletaOutCustom
+from WORKOUT_API.atleta.models import AtletaModel
+from WORKOUT_API.categorias.models import CategoriaModel
+from WORKOUT_API.centro_treinamento.models import CentroTreinamentoModel
 
-from workout_api.atleta.schemas import AtletaIn, AtletaOut, AtletaUpdate, AtletaOutCustom
-from workout_api.atleta.models import AtletaModel
-from workout_api.categorias.models import CategoriaModel
-from workout_api.centro_treinamento.models import CentroTreinamentoModel
 
-from workout_api.contrib.dependencies import DatabaseDependency
+from fastapi import APIRouter, Body, HTTPException, Query, status
+from fastapi_pagination import Page, paginate
+
+from WORKOUT_API.contrib.dependencies import DatabaseDependency
 from sqlalchemy.future import select
 
 router = APIRouter()
+
+
+@router.post(
+    '/',
+    summary='Criar um novo atleta',
+    status_code=status.HTTP_201_CREATED,
+    response_model=AtletaOut    
+)
 
 async def post(
     db_session: DatabaseDependency, 
@@ -60,101 +73,98 @@ async def post(
 
     return atleta_out
 
-
 @router.get(
     '/',
     summary='Consultar todos os atletas',
     status_code=status.HTTP_200_OK, 
-    response_model=list[AtletaOut]
+    response_model=Page[AtletaOutCustom]
     
 )
 async def query(
     db_session: DatabaseDependency,
     nome: Optional[str] = Query(None, description='Filtrar pelo nome do atleta'),
     cpf: Optional[str] = Query(None, description='Filtrar pelo cpf do atleta')
-    ) -> list[AtletaOut]:
+    ) -> Page[AtletaOutCustom]:
 
-    query_stmt = select(AtletaModel)
+    query_stmt = select(AtletaModel).join(AtletaModel.centro_treinamento).join(AtletaModel.categoria)
 
     if nome:
         query_stmt = query_stmt.filter(AtletaModel.nome.ilike(f'%{nome}%'))
     if cpf:
         query_stmt = query_stmt.filter(AtletaModel.cpf == cpf)
 
-    atletas:list[AtletaModel] = (await db_session.execute(query_stmt)).scalars().all()
+    atletas: list[AtletaModel] = (await db_session.execute(query_stmt)).scalars().all()
 
-    return [
+    atletas_custom = [
         AtletaOutCustom(
-        nome=atleta.nome,
-        centro_treinamento=atleta.centro_treinamento.nome,
-        categoria=atleta.categoria.nome
-    ) 
-    
-    for atleta in atletas]
+            nome=atleta.nome,
+            centro_treinamento=atleta.centro_treinamento.nome,
+            categoria=atleta.categoria.nome
+        )
+        for atleta in atletas
+    ]
+
+    return paginate(atletas_custom)
 
 
 @router.get(
-    '/{id}', 
-    summary='Consulta um Atleta pelo id',
-    status_code=status.HTTP_200_OK,
-    response_model=AtletaOut,
+    '/{id}',
+    summary='Consultar um atleta pelo id',
+    status_code=status.HTTP_200_OK, 
+    response_model=AtletaOut    
 )
-async def get(id: UUID4, db_session: DatabaseDependency) -> AtletaOut:
+async def query(id: UUID4, db_session: DatabaseDependency) -> AtletaOut:
     atleta: AtletaOut = (
         await db_session.execute(select(AtletaModel).filter_by(id=id))
     ).scalars().first()
 
     if not atleta:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f'Atleta não encontrado no id: {id}'
+            status.HTTP_404_NOT_FOUND, detail=f'Atleta não encontrado no id {id}'
         )
-    
+
     return atleta
 
 
 @router.patch(
-    '/{id}', 
-    summary='Editar um Atleta pelo id',
-    status_code=status.HTTP_200_OK,
-    response_model=AtletaOut,
+    '/{id}',
+    summary='Editar um atleta pelo id',
+    status_code=status.HTTP_200_OK, 
+    response_model=AtletaOut    
 )
-async def patch(id: UUID4, db_session: DatabaseDependency, atleta_up: AtletaUpdate = Body(...)) -> AtletaOut:
+async def query(id: UUID4, db_session: DatabaseDependency, atleta_up: AtletaUpdate = Body(...)) -> AtletaOut:
     atleta: AtletaOut = (
         await db_session.execute(select(AtletaModel).filter_by(id=id))
     ).scalars().first()
 
     if not atleta:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f'Atleta não encontrado no id: {id}'
+            status.HTTP_404_NOT_FOUND, detail=f'Atleta não encontrado no id {id}'
         )
-    
+
     atleta_update = atleta_up.model_dump(exclude_unset=True)
-    for key, value in atleta_update.items():
-        setattr(atleta, key, value)
+    for key, values in atleta_update.items():
+        setattr(atleta, key, values)
 
     await db_session.commit()
     await db_session.refresh(atleta)
 
     return atleta
 
-
 @router.delete(
-    '/{id}', 
-    summary='Deletar um Atleta pelo id',
+    '/{id}',
+    summary='Deletar um atleta pelo id',
     status_code=status.HTTP_204_NO_CONTENT
 )
-async def delete(id: UUID4, db_session: DatabaseDependency) -> None:
+async def query(id: UUID4, db_session: DatabaseDependency) -> None:
     atleta: AtletaOut = (
         await db_session.execute(select(AtletaModel).filter_by(id=id))
     ).scalars().first()
 
     if not atleta:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail=f'Atleta não encontrado no id: {id}'
+            status.HTTP_404_NOT_FOUND, detail=f'Atleta não encontrado no id {id}'
         )
-    
+
     await db_session.delete(atleta)
     await db_session.commit()
