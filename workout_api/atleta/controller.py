@@ -64,15 +64,28 @@ async def post(
 
 
 @router.get(
-    '/', 
-    summary='Consultar todos os Atletas',
-    status_code=status.HTTP_200_OK,
-    response_model=list[AtletaOut],
-)
-async def query(db_session: DatabaseDependency) -> list[AtletaOut]:
-    atletas: list[AtletaOut] = (await db_session.execute(select(AtletaModel))).scalars().all()
+    '/',
+    summary='Consultar todos os atletas',
+    status_code=status.HTTP_200_OK, 
+    response_model=list[AtletaOut]
     
-    return [AtletaOut.model_validate(atleta) for atleta in atletas]
+)
+async def query(
+    db_session: DatabaseDependency,
+    nome: Optional[str] = Query(None, description='Filtrar pelo nome do atleta'),
+    cpf: Optional[str] = Query(None, description='Filtrar pelo cpf do atleta')
+    ) -> list[AtletaOut]:
+
+    query_stmt = select(AtletaModel)
+
+    if nome:
+        query_stmt = query_stmt.filter(AtletaModel.nome.ilike(f'%{nome}%'))
+    if cpf:
+        query_stmt = query_stmt.filter(AtletaModel.cpf == cpf)
+
+    atletas:list[AtletaModel] = (await db_session.execute(query_stmt)).scalars().all()
+
+    return [AtletaOut.model_validate(atleta, from_attributes=True) for atleta in atletas]
 
 
 @router.get(
